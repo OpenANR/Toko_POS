@@ -25,7 +25,7 @@
         </thead>
 
         <tbody>
-            @foreach ($product as $item)
+            @foreach ($products as $item)
                 <tr>
                     <td>{{ $loop->iteration }}</td>
                     <td>{{ $item->category->name }}</td>

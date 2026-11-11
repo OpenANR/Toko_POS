@@ -57,3 +57,88 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Pencetakan Struk (Mike42 ESC/POS)
+
+Aplikasi POS pada halaman `/pos` mencetak struk **sepenuhnya dari backend PHP**
+menggunakan library `mike42/escpos-php`. Browser hanya menampilkan preview hasil
+cetak; tidak ada lagi pencetakan melalui `window.print()`.
+
+Alur cetak:
+
+1. Kasir menekan **Bayar & Cetak Struk**.
+2. `PosController@checkout` menyimpan transaksi, lalu memanggil
+   `App\Services\ReceiptPrinter` untuk mencetak struk.
+3. Teks struk yang sama dikirim balik ke browser sebagai preview.
+4. Tombol **Cetak Ulang ke Printer** memanggil `PosController@reprint`
+   (`POST /pos/receipt/{transaction}/print`).
+
+Konfigurasi konektor printer ada di `config/printing.php` dan dapat diatur
+melalui `.env`:
+
+| Variabel | Keterangan |
+| --- | --- |
+| `PRINT_DRIVER` | `file`, `windows`, `cups`, atau `network` |
+| `PRINT_PRINTER_NAME` | Nama printer (untuk driver `windows`/`cups`) |
+| `PRINT_FILE_PATH` | Lokasi file simulasi (driver `file`), default `storage/logs/struk.txt` |
+| `PRINT_NETWORK_HOST` / `PRINT_NETWORK_PORT` | Alamat printer LAN (driver `network`) |
+| `PRINT_STORE_NAME` | Nama toko pada struk |
+| `PRINT_STORE_ADDRESS` | Alamat toko pada struk |
+| `PRINT_PAPER_WIDTH` | Lebar kertas: `32` (58mm) atau `48` (80mm) |
+
+Secara default driver `file` dipakai sehingga aplikasi tetap berjalan tanpa
+printer fisik — hasil cetak dapat dilihat di `storage/logs/struk.txt`. Untuk
+printer thermal nyata, ubah `PRINT_DRIVER` sesuai sistem operasi
+(`windows` atau `cups`).
+
+## Payment Gateway Midtrans
+
+Halaman `/pos` mendukung dua metode pembayaran: **Tunai** dan **Midtrans**
+(QRIS, e-wallet, virtual account, kartu, dan gerai retail). Integrasi mengikuti
+materi BKPM acara 37–38.
+
+Konfigurasi ada di `.env` dan `config/midtrans.php`:
+
+| Variabel | Keterangan |
+| --- | --- |
+| `MIDTRANS_SERVER_KEY` | Server Key dari dashboard Midtrans (sandbox diawali `SB-Mid-server-`) |
+| `MIDTRANS_CLIENT_KEY` | Client Key dari dashboard Midtrans (sandbox diawali `SB-Mid-client-`) |
+| `MIDTRANS_IS_PRODUCTION` | `false` untuk sandbox, `true` untuk produksi |
+| `MIDTRANS_SANITIZE` | Sanitasi data pelanggan |
+| `MIDTRANS_3DS` | Aktifkan 3D Secure untuk kartu kredit/debit |
+
+Alur pembayaran Midtrans:
+
+1. Kasir memilih metode **Midtrans** lalu menekan **Bayar dengan Midtrans**.
+2. `PosController@checkout` menyimpan transaksi dengan status `pending` dan
+   memanggil `App\Services\MidtransPayment` untuk membuat Snap token.
+3. Browser membuka popup Snap (`snap.js`) menggunakan Client Key.
+4. Setelah pembayaran, Midtrans mengirim webhook ke
+   `POST /midtrans/notification` (`MidtransController@notification`).
+5. Webhook memverifikasi `signature_key`, mengambil status terbaru dari API
+   Midtrans, lalu mengubah `payment_status` menjadi `paid`, `failed`, atau
+   `expired`. Stok dikembalikan otomatis jika pembayaran gagal/kedaluwarsa.
+
+Agar webhook bisa dipanggil Midtrans saat pengembangan lokal, buka tunnel
+publik (misalnya `ngrok http 8000`) lalu isi **Payment Notification URL** di
+dashboard Midtrans dengan `https://<domain-tunnel>/midtrans/notification`.
+
+> **Peringatan sandbox:** jangan pernah scan QR/VA transaksi sandbox memakai
+> aplikasi e-wallet atau bank asli. Referensi sandbox bisa saja mengarah ke
+> akun produksi dan dana asli berisiko tidak kembali. Gunakan simulator resmi
+> Midtrans: <https://simulator.sandbox.midtrans.com/> (untuk QRIS, salin URL
+> gambar QR lalu tempel di simulator QRIS).
+
+Status pembayaran tersimpan di kolom `transactions.payment_status`
+(`pending`, `paid`, `failed`, `expired`) dan `transactions.payment_method`
+(`cash`, `midtrans`).
+
+### Pengujian
+
+```bash
+composer test
+```
+
+Test struk memeriksa format struk (nama toko, tanggal, item, subtotal, diskon,
+total, kembalian) dan mencetak ulang melalui backend.
+
